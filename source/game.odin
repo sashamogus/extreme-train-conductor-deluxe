@@ -31,14 +31,7 @@ import "core:fmt"
 import "core:math/linalg"
 import rl "vendor:raylib"
 
-PIXEL_WINDOW_HEIGHT :: 180
-
-Game_Memory :: struct {
-	run: bool,
-}
-
 g_mem: ^Game_Memory
-
 
 @(export)
 game_update :: proc() {
@@ -48,10 +41,9 @@ game_update :: proc() {
 
 @(export)
 game_init_window :: proc() {
-	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT})
-	rl.InitWindow(1280, 720, "Odin + Raylib + Hot Reload template!")
-	rl.SetWindowPosition(200, 200)
-	rl.SetTargetFPS(60)
+	rl.SetConfigFlags({ .VSYNC_HINT })
+	rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Odin + Raylib + Hot Reload template!")
+	rl.SetTargetFPS(FRAME_RATE)
 	rl.SetExitKey(nil)
 }
 
@@ -61,12 +53,11 @@ game_init :: proc() {
 
 	g_mem^ = Game_Memory {
 		run = true,
-		some_number = 100,
-
-		// You can put textures, sounds and music in the `assets` folder. Those
-		// files will be part any release or web build.
-		player_texture = rl.LoadTexture("assets/round_cat.png"),
+		render_target = rl.LoadRenderTexture(RENDER_WIDTH, RENDER_HEIGHT),
 	}
+	rl.SetTextureFilter(g_mem.render_target.texture, .POINT)
+
+	init()
 
 	game_hot_reloaded(g_mem)
 }
@@ -125,5 +116,5 @@ game_force_restart :: proc() -> bool {
 // In a web build, this is called when browser changes size. Remove the
 // `rl.SetWindowSize` call if you don't want a resizable game.
 game_parent_window_size_changed :: proc(w, h: int) {
-	rl.SetWindowSize(i32(w), i32(h))
+	// rl.SetWindowSize(i32(w), i32(h))
 }
