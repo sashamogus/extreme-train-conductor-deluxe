@@ -449,7 +449,6 @@ draw :: proc() {
 		rl.DrawRectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, c)
 	}
 	
-	rl.DrawText(fmt.ctprint(g_mem.train_spawners[0].quota_dir_change), 0, 0, 30, rl.WHITE)
 	rl.EndDrawing()
 }
 
