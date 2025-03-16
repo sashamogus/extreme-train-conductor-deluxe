@@ -42,7 +42,7 @@ game_update :: proc() {
 @(export)
 game_init_window :: proc() {
 	rl.SetConfigFlags({ .VSYNC_HINT })
-	rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Odin + Raylib + Hot Reload template!")
+	rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Extreme Train Conductor Deluxe!")
 	rl.SetTargetFPS(FRAME_RATE)
 	rl.SetExitKey(nil)
 }
