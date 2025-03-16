@@ -449,6 +449,7 @@ draw :: proc() {
 		rl.DrawRectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, c)
 	}
 	
+	rl.DrawText(fmt.ctprint(g_mem.train_spawners[0].quota_dir_change), 0, 0, 30, rl.WHITE)
 	rl.EndDrawing()
 }
 
@@ -833,12 +834,15 @@ spawn_train :: proc(spawner_index: int, type: Train_Type, length: int, speed_mul
 decide_spawn_type :: proc(spawner_index: int) {
 	s := &g_mem.train_spawners[spawner_index]
 	quota_sum := s.quota_normal + s.quota_fast + s.quota_long
-	if quota_sum - 1 <= s.quota_dir_change || rand.int_max(5) == 0 {
-		s.quota_dir_change -= 1
-		s.dir_change_queued = true
-	}
 	if quota_sum == 0 {
 		return
+	}
+	
+	if s.quota_dir_change > 0 {
+		if quota_sum - 1 <= s.quota_dir_change || rand.int_max(5) == 0 {
+			s.quota_dir_change -= 1
+			s.dir_change_queued = true
+		}
 	}
 
 	if g_mem.game_state == .Title {
