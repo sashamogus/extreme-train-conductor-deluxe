@@ -19,21 +19,12 @@ LEVER_SIZE :: 48
 LEVER_PAD :: 20
 LEVER_AREA :: RENDER_HEIGHT - 100
 
-Game_State :: enum {
-	Title,
-	How_To_Play,
-	Level_Start,
-	Wave_Start,
-	Game,
-	Gameover,
-}
-
 Game_Memory :: struct {
 	run: bool,
 	render_target: rl.RenderTexture,
 	textures: [Texture_Tag]rl.Texture,
 
-	game_state: Game_State,
+	game_state_machine: Game_State_Machine,
 	fade_out: bool,
 	fade_out_timer: f32,
 	fade_in: bool,
@@ -233,12 +224,6 @@ game_camera :: proc() -> rl.Camera2D {
 	}
 }
 
-ui_camera :: proc() -> rl.Camera2D {
-	return {
-		zoom = 1,
-	}
-}
-
 mouse_position :: proc() -> [2]f32 {
 	return rl.GetMousePosition() * [2]f32 {
 		f32(RENDER_WIDTH) / f32(WINDOW_WIDTH),
@@ -247,11 +232,8 @@ mouse_position :: proc() -> [2]f32 {
 }
 
 init :: proc() {
-	g_mem.game_state = .Title
 	load_assets()
-	load_level(title_level)
-	
-	wave_start()
+	enter_title(true)
 }
 
 load_assets :: proc() {
@@ -304,135 +286,34 @@ update :: proc() {
 
 	debug_rects = make([dynamic]rl.Rectangle, context.temp_allocator)
 
-	if rl.IsKeyPressed(.J) {
-		load_assets()
+	when ODIN_DEBUG {
+		if rl.IsKeyPressed(.J) {
+			fmt.println("Hot reloading assets...")
+			load_assets()
+		}
 	}
 	
-	switch g_mem.game_state {
-	case .Title:
-		update_train_spawners()
-		update_trains()
-		update_particles()
-
-		if g_mem.fade_in {
-			g_mem.fade_in_timer -= DELTA_TIME
-			if g_mem.fade_in_timer < 0 {
-				g_mem.fade_in = false
-			}
-		} else if g_mem.fade_out {
-			g_mem.fade_out_timer -= DELTA_TIME
-			if g_mem.fade_out_timer < 0 {
-				g_mem.fade_out = false
-				
-				game_start()
-				g_mem.game_state = .Level_Start
-				g_mem.fade_in = true
-				g_mem.fade_in_timer = 1
-			}
-		}
-		g_mem.score = 0
-	case .How_To_Play:
-	case .Level_Start:
-		update_levers()
-		update_rails()
-		update_particles()
-		
-		if g_mem.fade_in {
-			g_mem.fade_in_timer -= DELTA_TIME
-			if g_mem.fade_in_timer < 0 {
-				g_mem.fade_in = false
-			}
-		}
-	case .Wave_Start:
-		update_levers()
-		update_rails()
-		update_particles()
-		
-		g_mem.wave_countdown -= DELTA_TIME
-		if g_mem.wave_countdown < 0 {
-			g_mem.game_state = .Game
-		}
-	case .Game:
-		if g_mem.fade_out {
-			g_mem.fade_out_timer -= DELTA_TIME
-			if g_mem.fade_out_timer < 0 {
-				g_mem.fade_out = false
-				load_level(levels[g_mem.current_level])
-				g_mem.game_state = .Level_Start
-				g_mem.fade_in = true
-				g_mem.fade_in_timer = 1
-			}
-		} else {
-			update_levers()
-			update_rails()
-			update_train_spawners()
-			update_trains()
-			update_particles()
-			if g_mem.heart < 0 {
-				free_all_trains()
-				g_mem.game_state = .Gameover
-			}
-		}
-	case .Gameover:
-		update_levers()
-		update_rails()
-		update_particles()
-		
-		if g_mem.fade_out {
-			g_mem.fade_out_timer -= DELTA_TIME
-			if g_mem.fade_out_timer < 0 {
-				g_mem.fade_out = false
-				
-				load_level(title_level)
-				wave_start()
-				
-				g_mem.game_state = .Title
-				g_mem.fade_in = true
-				g_mem.fade_in_timer = 1
-			}
-		}
-	}
-
-	g_mem.highscore = max(g_mem.highscore, g_mem.score)
-}
-
-im_button :: proc(text: cstring, pos: [2]i32, font_size: i32) -> bool {
-	text_size := rl.MeasureText(text, font_size)
-	ptext_size := text_size + 20
-	pfont_size := font_size + 20
-	rect := rl.Rectangle {
-		f32(pos.x - ptext_size / 2),
-		f32(pos.y - pfont_size / 2) + 10,
-		f32(ptext_size),
-		f32(pfont_size),
-	}
-	
-	color := rl.GRAY
-	m := mouse_position()
-	ret: bool
-	if rl.CheckCollisionPointRec(m, rect) {
-		color = rl.ColorBrightness(color, -0.5)
-		if rl.IsMouseButtonPressed(.LEFT) {
-			ret = true
-		}
-		if rl.IsMouseButtonDown(.LEFT) {
-			color = rl.ColorBrightness(color, -0.5)
-		}
-	}
-	rl.DrawRectangleRec(rect, color)
-	rl.DrawRectangleLinesEx(rect, 1, rl.BLACK)
-	rl.DrawText(text, pos.x - text_size / 2, pos.y, font_size, rl.WHITE)
-	return ret
-}
-
-draw :: proc() {
 	rl.BeginDrawing()
 
 	// Draw game into render texture
 	rl.BeginTextureMode(g_mem.render_target)
-	draw_game()
+	rl.ClearBackground(rl.DARKGREEN)
+
+	// Draw game elements
+	rl.BeginMode2D(game_camera())
+	
+	game_state_update()
+	g_mem.highscore = max(g_mem.highscore, g_mem.score)
+	
+	for rect in debug_rects {
+		rl.DrawRectangleRec(rect, rl.RED)
+		rl.DrawRectangleLinesEx(rect, 1, rl.GREEN)
+	}
+	
+	rl.EndMode2D()
 	rl.EndTextureMode()
 
+	
 	// Draw render texture scaled
 	src := rl.Rectangle { 0, 0, RENDER_WIDTH, -RENDER_HEIGHT, }
 	dst := rl.Rectangle { 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, }
@@ -458,146 +339,6 @@ draw_text_centered :: proc(text: cstring, x, y, font_size: i32, color: rl.Color)
 	rl.DrawText(text, x, y, font_size, rl.WHITE)
 }
 
-draw_game :: proc() {
-	rl.ClearBackground(rl.DARKGREEN)
-
-	// Draw game elements
-	rl.BeginMode2D(game_camera())
-	switch g_mem.game_state {
-	case .Title:
-		draw_title()
-	case .How_To_Play:
-		draw_how_to_play()
-	case .Level_Start:
-		draw_rails()
-		draw_levers()
-		draw_particles()
-		if im_button("Start", { RENDER_WIDTH / 2, 250}, 20) {
-			if !g_mem.fade_in {
-				wave_start()
-				g_mem.game_state = .Wave_Start
-				g_mem.wave_countdown = 3
-			}
-		}
-	case .Wave_Start:
-		draw_rails()
-		draw_levers()
-		draw_particles()
-		x: i32 = (RENDER_WIDTH  / 2)
-		y: i32 = (RENDER_HEIGHT / 2) - 100
-		text := fmt.ctprintf("Wave %v starts in ...", g_mem.current_wave)
-		draw_text_centered(text, x, y, 20, rl.WHITE)
-		text = fmt.ctprint(math.ceil(g_mem.wave_countdown))
-		rl.DrawText(text, x - 10, y + 50, 50, rl.WHITE)
-	case .Game:
-		draw_rails()
-		draw_train_spawners()
-		draw_trains()
-		draw_levers()
-		draw_particles()
-	case .Gameover:
-		draw_rails()
-		draw_train_spawners()
-		draw_trains()
-		draw_levers()
-		draw_particles()
-		
-		x: i32 = (RENDER_WIDTH  / 2)
-		y: i32 = (RENDER_HEIGHT / 2) - 100
-		draw_text_centered("Gameover!!", x, y, 20, rl.WHITE)
-		if im_button("Go Back To Title", { RENDER_WIDTH / 2, 250}, 20) {
-			if !g_mem.fade_out {
-				g_mem.fade_out = true
-				g_mem.fade_out_timer = 1
-			}
-		}
-	}
-
-	for rect in debug_rects {
-		rl.DrawRectangleRec(rect, rl.RED)
-		rl.DrawRectangleLinesEx(rect, 1, rl.GREEN)
-	}
-	rl.EndMode2D()
-	
-	// Draw ui elements
-	rl.BeginMode2D(ui_camera())
-	if g_mem.game_state == .Title {
-		
-	} else if g_mem.game_state != .How_To_Play {
-		rl.DrawText(fmt.ctprint("Highscore: ", g_mem.highscore), 0, LEVER_AREA - 40, 20, rl.WHITE)
-		rl.DrawText(fmt.ctprint("Score: ", g_mem.score), 0, LEVER_AREA - 20, 20, rl.WHITE)
-		rl.DrawText(fmt.ctprint("Heart: ", g_mem.heart), 0, LEVER_AREA, 20, rl.WHITE)
-		rl.DrawText(fmt.ctprint("Wave: ", g_mem.current_wave), 0, LEVER_AREA + 20, 20, rl.WHITE)
-	}
-	rl.EndMode2D()
-}
-
-draw_title :: proc() {
-	draw_text_centered("Extreme Train Conductor Deluxe!!!", RENDER_WIDTH / 2, 50, 30, rl.WHITE)
-	draw_rails()
-	draw_trains()
-	draw_particles()
-
-	if im_button("Game Start", { RENDER_WIDTH / 2, RENDER_HEIGHT - 150 }, 20) {
-		if !g_mem.fade_out && !g_mem.fade_in {
-			g_mem.fade_out = true
-			g_mem.fade_out_timer = 1
-		}
-	}
-	if im_button("How To Play", { RENDER_WIDTH / 2, RENDER_HEIGHT - 100 }, 20) {
-		if !g_mem.fade_out && !g_mem.fade_in {
-			g_mem.game_state = .How_To_Play
-		}
-	}
-}
-
-draw_how_to_play :: proc() {
-	y: i32 = 100
-	draw_text_centered("Click on levers to switch the rails", RENDER_WIDTH / 2, y, 20, rl.WHITE)
-	y += 30
-	
-	src := rl.Rectangle {
-		0,
-		0,
-		LEVER_SIZE,
-		LEVER_SIZE,
-	}
-	lever_pos := [2]f32 { (RENDER_WIDTH / 2) - 100, f32(y) }
-	rl.DrawTextureRec(g_mem.textures[.Lever], src, lever_pos, rl.WHITE)
-	tex_ud := g_mem.textures[.Rail_Up_Down]
-	tex_sw := g_mem.textures[.Rail_Sideway]
-	tex_st := g_mem.textures[.Rail_Switch_SW]
-	rail_x: i32 = (RENDER_WIDTH / 2) + 20
-	draw_rail(tex_ud, rail_x, y, rl.WHITE)
-	draw_rail(tex_st, rail_x, y + RAIL_SIZE, rl.BLUE)
-	draw_rail(tex_ud, rail_x, y + RAIL_SIZE * 2, rl.WHITE)
-	draw_rail(tex_sw, rail_x - RAIL_SIZE, y + RAIL_SIZE, rl.WHITE)
-	draw_rail(tex_sw, rail_x + RAIL_SIZE, y + RAIL_SIZE, rl.WHITE)
-	y += 50
-
-	draw_text_centered("Click on trains to stop trains", RENDER_WIDTH / 2, y, 20, rl.WHITE)
-	y += 20
-	draw_text_centered("Click again to start it", RENDER_WIDTH / 2, y, 20, rl.WHITE)
-	y += 20
-
-	tex_train := g_mem.textures[.Train]
-	tex_cargo := g_mem.textures[.Cargo]
-	train_x: i32 = (RENDER_WIDTH / 2) + 20
-	train_y: i32 = y + 15
-	rl.DrawTexture(tex_train, train_x, train_y, rl.WHITE)
-	for i in 1..<i32(6) {
-		rl.DrawTexture(tex_cargo, train_x - TRAIN_OFFSET * i, train_y, rl.WHITE)
-	}
-	y += 50
-
-	draw_text_centered("And make sure nothing explode!", RENDER_WIDTH / 2, y, 20, rl.WHITE)
-	y += 20
-	
-	if im_button("Back", { RENDER_WIDTH / 2, y + 30 }, 20) {
-		g_mem.game_state = .Title
-	}
-}
-
 get_rail :: proc(pos: [2]f32) -> Maybe(Rail) {
 	p := [2]int { int(pos.x / RAIL_SIZE), int(pos.y / RAIL_SIZE) }
 	if p.x < 0 || p.x >= RAIL_GRID_WIDTH ||
@@ -607,6 +348,7 @@ get_rail :: proc(pos: [2]f32) -> Maybe(Rail) {
 
 	return g_mem.rail_grid[p.y][p.x]
 }
+
 
 get_rail_axis :: proc(rail: Rail) -> Maybe(Axis) {
 	switch rail.type {
@@ -844,7 +586,7 @@ decide_spawn_type :: proc(spawner_index: int) {
 		}
 	}
 
-	if g_mem.game_state == .Title {
+	if g_mem.game_state_machine == .Title {
 		s.spawn_type = .Normal
 		return
 	}
@@ -870,7 +612,7 @@ decide_spawn_type :: proc(spawner_index: int) {
 }
 
 update_train_spawners :: proc() {
-	if g_mem.game_state == .Title {
+	if g_mem.game_state_machine == .Title {
 		for &s, i in g_mem.train_spawners {
 			s.timer -= DELTA_TIME
 			if s.timer < 0 {
@@ -931,11 +673,9 @@ update_train_spawners :: proc() {
 				g_mem.fade_out = true
 				g_mem.fade_out_timer = 1
 			} else {
-				g_mem.game_state = .Wave_Start
-				g_mem.wave_countdown = 3
+				enter_wave_start()
 			}
 			g_mem.current_wave += 1
-			wave_start()
 		}
 	}
 	

@@ -36,7 +36,6 @@ g_mem: ^Game_Memory
 @(export)
 game_update :: proc() {
 	update()
-	draw()
 }
 
 @(export)
