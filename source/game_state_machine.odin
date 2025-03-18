@@ -4,13 +4,37 @@ import "core:fmt"
 import "core:math"
 import rl "vendor:raylib"
 
-Game_State_Machine :: enum {
-	Title,
-	How_To_Play,
-	Level_Start,
-	Wave_Start,
-	Game,
-	Gameover,
+Game_State_Machine :: union {
+	Game_State_Title,
+	Game_State_How_To_Play,
+	Game_State_Level_Start,
+	Game_State_Wave_Start,
+	Game_State_Game,
+	Game_State_Gameover,
+}
+
+Game_State_Title :: struct {
+	fade_in: bool,
+	fade_in_timer: f32,
+	fade_to_level_start: bool,
+	fade_out_timer: f32,
+}
+Game_State_How_To_Play :: struct {
+}
+Game_State_Level_Start :: struct {
+	fade_in: bool,
+	fade_in_timer: f32,
+}
+Game_State_Wave_Start :: struct {
+	wave_countdown: f32,
+}
+Game_State_Game :: struct {
+	fade_to_level_start: bool,
+	fade_out_timer: f32,
+}
+Game_State_Gameover :: struct {
+	fade_to_title: bool,
+	fade_out_timer: f32,
 }
 
 im_button :: proc(text: cstring, pos: [2]i32, font_size: i32) -> bool {
@@ -42,20 +66,27 @@ im_button :: proc(text: cstring, pos: [2]i32, font_size: i32) -> bool {
 	return ret
 }
 
-game_state_update :: proc() {
-	switch g_mem.game_state_machine {
-	case .Title:
-		update_title()
-	case .How_To_Play:
-		update_how_to_play()
-	case .Level_Start:
-		update_level_start()
-	case .Wave_Start:
-		update_wave_start()
-	case .Game:
-		update_game()
-	case .Gameover:
-		update_gameover()
+next_game_state: Maybe(Game_State_Machine)
+update_game_state :: proc() {
+	next_game_state = nil
+	
+	switch &state in g_mem.game_state_machine {
+	case Game_State_Title:
+		update_title(&state)
+	case Game_State_How_To_Play:
+		update_how_to_play(&state)
+	case Game_State_Level_Start:
+		update_level_start(&state)
+	case Game_State_Wave_Start:
+		update_wave_start(&state)
+	case Game_State_Game:
+		update_game(&state)
+	case Game_State_Gameover:
+		update_gameover(&state)
+	}
+
+	if next_game_state != nil {
+		g_mem.game_state_machine = next_game_state.(Game_State_Machine)
 	}
 }
 
@@ -66,30 +97,42 @@ draw_hud :: proc() {
 	rl.DrawText(fmt.ctprint("Wave: ", g_mem.current_wave), 0, LEVER_AREA + 20, 20, rl.WHITE)
 }
 
-enter_title :: proc(fade_in: bool) {
-	g_mem.game_state_machine = .Title
-	load_level(title_level)
-	wave_start()
-	if fade_in {
-		g_mem.fade_in = true
-		g_mem.fade_in_timer = 1
-	}
+draw_fade_in :: proc(t: f32, on: bool) {
+	if !on { return }
+	c := rl.BLACK
+	c.a = u8(math.saturate(t)*255)
+	rl.DrawRectangle(0, 0, RENDER_WIDTH, RENDER_HEIGHT, c)
 }
 
-update_title :: proc() {
+draw_fade_out :: proc(t: f32, on: bool) {
+	if !on { return }
+	c := rl.BLACK
+	c.a = u8(math.saturate(1.0 - t)*255)
+	rl.DrawRectangle(0, 0, RENDER_WIDTH, RENDER_HEIGHT, c)
+}
+
+enter_title :: proc(fade_in: bool) {
+	next_game_state = Game_State_Title {
+		fade_in = fade_in,
+		fade_in_timer = 1,
+	}
+	load_level(title_level)
+	wave_start()
+}
+
+update_title :: proc(state: ^Game_State_Title) {
 	update_train_spawners()
 	update_trains()
 	update_particles()
 
-	if g_mem.fade_in {
-		g_mem.fade_in_timer -= DELTA_TIME
-		if g_mem.fade_in_timer < 0 {
-			g_mem.fade_in = false
+	if state.fade_in {
+		state.fade_in_timer -= DELTA_TIME
+		if state.fade_in_timer < 0 {
+			state.fade_in = false
 		}
-	} else if g_mem.fade_out {
-		g_mem.fade_out_timer -= DELTA_TIME
-		if g_mem.fade_out_timer < 0 {
-			g_mem.fade_out = false
+	} else if state.fade_to_level_start {
+		state.fade_out_timer -= DELTA_TIME
+		if state.fade_out_timer < 0 {
 			game_start()
 			enter_level_start()
 		}
@@ -102,23 +145,26 @@ update_title :: proc() {
 	draw_particles()
 
 	if im_button("Game Start", { RENDER_WIDTH / 2, RENDER_HEIGHT - 150 }, 20) {
-		if !g_mem.fade_out && !g_mem.fade_in {
-			g_mem.fade_out = true
-			g_mem.fade_out_timer = 1
+		if !state.fade_to_level_start && !state.fade_in {
+			state.fade_to_level_start = true
+			state.fade_out_timer = 1
 		}
 	}
 	if im_button("How To Play", { RENDER_WIDTH / 2, RENDER_HEIGHT - 100 }, 20) {
-		if !g_mem.fade_out && !g_mem.fade_in {
+		if !state.fade_to_level_start && !state.fade_in {
 			enter_how_to_play()
 		}
 	}
+
+	draw_fade_in(state.fade_in_timer, state.fade_in)
+	draw_fade_out(state.fade_out_timer, state.fade_to_level_start)
 }
 
 enter_how_to_play :: proc() {
-	g_mem.game_state_machine = .How_To_Play
+	next_game_state = Game_State_How_To_Play {}
 }
 
-update_how_to_play :: proc() {
+update_how_to_play :: proc(state: ^Game_State_How_To_Play) {
 	y: i32 = 100
 	draw_text_centered("Click on levers to switch the rails", RENDER_WIDTH / 2, y, 20, rl.WHITE)
 	y += 30
@@ -166,20 +212,21 @@ update_how_to_play :: proc() {
 }
 
 enter_level_start :: proc() {
-	g_mem.game_state_machine = .Level_Start
-	g_mem.fade_in = true
-	g_mem.fade_in_timer = 1
+	next_game_state = Game_State_Level_Start {
+		fade_in = true,
+		fade_in_timer = 1,
+	}
 }
 
-update_level_start :: proc() {
+update_level_start :: proc(state: ^Game_State_Level_Start) {
 	update_levers()
 	update_rails()
 	update_particles()
 	
-	if g_mem.fade_in {
-		g_mem.fade_in_timer -= DELTA_TIME
-		if g_mem.fade_in_timer < 0 {
-			g_mem.fade_in = false
+	if state.fade_in {
+		state.fade_in_timer -= DELTA_TIME
+		if state.fade_in_timer < 0 {
+			state.fade_in = false
 		}
 	}
 	draw_rails()
@@ -187,26 +234,28 @@ update_level_start :: proc() {
 	draw_particles()
 	draw_hud()
 	if im_button("Start", { RENDER_WIDTH / 2, 250}, 20) {
-		if !g_mem.fade_in {
+		if !state.fade_in {
 			enter_wave_start()
 		}
 	}
+	
+	draw_fade_in(state.fade_in_timer, state.fade_in)
 }
 
 enter_wave_start :: proc() {
-	g_mem.game_state_machine = .Wave_Start
-	g_mem.wave_countdown = 3
-	wave_start()
+	next_game_state = Game_State_Wave_Start {
+		wave_countdown = 3,
+	}
 }
  
-update_wave_start :: proc() {
+update_wave_start :: proc(state: ^Game_State_Wave_Start) {
 	update_levers()
 	update_rails()
 	update_particles()
 	
-	g_mem.wave_countdown -= DELTA_TIME
-	if g_mem.wave_countdown < 0 {
-		g_mem.game_state_machine = .Game
+	state.wave_countdown -= DELTA_TIME
+	if state.wave_countdown < 0 {
+		enter_game()
 	}
 	
 	draw_rails()
@@ -217,19 +266,19 @@ update_wave_start :: proc() {
 	y: i32 = (RENDER_HEIGHT / 2) - 100
 	text := fmt.ctprintf("Wave %v starts in ...", g_mem.current_wave)
 	draw_text_centered(text, x, y, 20, rl.WHITE)
-	text = fmt.ctprint(math.ceil(max(g_mem.wave_countdown, 0)))
+	text = fmt.ctprint(math.ceil(max(state.wave_countdown, 1)))
 	rl.DrawText(text, x - 10, y + 50, 50, rl.WHITE)
 }
 
 enter_game :: proc() {
-	g_mem.game_state_machine = .Game
+	next_game_state = Game_State_Game {}
+	wave_start()
 }
 
-update_game :: proc() {
-	if g_mem.fade_out {
-		g_mem.fade_out_timer -= DELTA_TIME
-		if g_mem.fade_out_timer < 0 {
-			g_mem.fade_out = false
+update_game :: proc(state: ^Game_State_Game) {
+	if state.fade_to_level_start {
+		state.fade_out_timer -= DELTA_TIME
+		if state.fade_out_timer < 0 {
 			load_level(levels[g_mem.current_level])
 			enter_level_start()
 		}
@@ -239,6 +288,24 @@ update_game :: proc() {
 		update_train_spawners()
 		update_trains()
 		update_particles()
+
+		for m in game_messages {
+			switch m {
+			case .Wave_End:
+				if g_mem.current_wave % 3 == 0 {
+					g_mem.current_level += 1
+					if g_mem.current_level == len(levels) {
+						g_mem.current_level = 0
+					}
+					state.fade_to_level_start = true
+					state.fade_out_timer = 1
+				} else {
+					enter_wave_start()
+				}
+				g_mem.current_wave += 1
+			}
+		}
+		
 		if g_mem.heart < 0 {
 			free_all_trains()
 			enter_gameover()
@@ -251,24 +318,26 @@ update_game :: proc() {
 	draw_levers()
 	draw_particles()
 	draw_hud()
+	
+	draw_fade_out(state.fade_out_timer, state.fade_to_level_start)
 }
 
 enter_gameover :: proc() {
-	g_mem.game_state_machine = .Gameover
+	next_game_state = Game_State_Gameover {}
 }
 
-update_gameover :: proc() {
+update_gameover :: proc(state: ^Game_State_Gameover) {
 	update_levers()
 	update_rails()
 	update_particles()
 	
-	if g_mem.fade_out {
-		g_mem.fade_out_timer -= DELTA_TIME
-		if g_mem.fade_out_timer < 0 {
-			g_mem.fade_out = false
+	if state.fade_to_title {
+		state.fade_out_timer -= DELTA_TIME
+		if state.fade_out_timer < 0 {
 			enter_title(true)
 		}
 	}
+
 	
 	draw_rails()
 	draw_train_spawners()
@@ -281,9 +350,11 @@ update_gameover :: proc() {
 	y: i32 = (RENDER_HEIGHT / 2) - 100
 	draw_text_centered("Gameover!!", x, y, 20, rl.WHITE)
 	if im_button("Go Back To Title", { RENDER_WIDTH / 2, 250}, 20) {
-		if !g_mem.fade_out {
-			g_mem.fade_out = true
-			g_mem.fade_out_timer = 1
+		if !state.fade_to_title {
+			state.fade_to_title = true
+			state.fade_out_timer = 1
 		}
 	}
+	
+	draw_fade_out(state.fade_out_timer, state.fade_to_title)
 }

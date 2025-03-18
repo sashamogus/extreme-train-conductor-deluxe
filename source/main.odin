@@ -25,13 +25,7 @@ Game_Memory :: struct {
 	textures: [Texture_Tag]rl.Texture,
 
 	game_state_machine: Game_State_Machine,
-	fade_out: bool,
-	fade_out_timer: f32,
-	fade_in: bool,
-	fade_in_timer: f32,
-
-	wave_countdown: f32,
-
+	
 	current_wave: int,
 	current_level: int,
 	score: int,
@@ -44,7 +38,6 @@ Game_Memory :: struct {
 	train_spawners: [dynamic]Train_Spawner,
 	particles: [dynamic]Particle,
 }
-
 
 @(rodata)
 textures_path := [Texture_Tag]cstring {
@@ -62,6 +55,10 @@ textures_path := [Texture_Tag]cstring {
 	.Arrow_Normal = "assets/arrow_normal.png",
 	.Arrow_Fast = "assets/arrow_fast.png",
 	.Arrow_Long = "assets/arrow_long.png",
+}
+
+Game_Message :: enum {
+	Wave_End,
 }
 
 Texture_Tag :: enum {
@@ -234,6 +231,7 @@ mouse_position :: proc() -> [2]f32 {
 init :: proc() {
 	load_assets()
 	enter_title(true)
+	g_mem.game_state_machine = next_game_state.(Game_State_Machine)
 }
 
 load_assets :: proc() {
@@ -242,8 +240,6 @@ load_assets :: proc() {
 		g_mem.textures[t] = rl.LoadTexture(textures_path[t])
 	}
 }
-
-debug_rects: [dynamic]rl.Rectangle
 
 game_start :: proc() {
 	g_mem.current_wave = 1
@@ -281,10 +277,14 @@ wave_start :: proc() {
 	}
 }
 
+debug_rects: [dynamic]rl.Rectangle
+game_messages: [dynamic]Game_Message
+
 update :: proc() {
 	free_all(context.temp_allocator)
 
-	debug_rects = make([dynamic]rl.Rectangle, context.temp_allocator)
+	debug_rects = make([dynamic]rl.Rectangle, 0, 16, context.temp_allocator)
+	game_messages = make([dynamic]Game_Message, 0, 16, context.temp_allocator)
 
 	when ODIN_DEBUG {
 		if rl.IsKeyPressed(.J) {
@@ -302,7 +302,7 @@ update :: proc() {
 	// Draw game elements
 	rl.BeginMode2D(game_camera())
 	
-	game_state_update()
+	update_game_state()
 	g_mem.highscore = max(g_mem.highscore, g_mem.score)
 	
 	for rect in debug_rects {
@@ -313,22 +313,10 @@ update :: proc() {
 	rl.EndMode2D()
 	rl.EndTextureMode()
 
-	
 	// Draw render texture scaled
 	src := rl.Rectangle { 0, 0, RENDER_WIDTH, -RENDER_HEIGHT, }
 	dst := rl.Rectangle { 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, }
 	rl.DrawTexturePro(g_mem.render_target.texture, src, dst, 0, 0, rl.WHITE)
-
-	if g_mem.fade_out {
-		c := rl.BLACK
-		c.a = 255 - u8(g_mem.fade_out_timer * 255)
-		rl.DrawRectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, c)
-	}
-	if g_mem.fade_in {
-		c := rl.BLACK
-		c.a = u8(g_mem.fade_in_timer * 255)
-		rl.DrawRectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, c)
-	}
 	
 	rl.EndDrawing()
 }
@@ -586,7 +574,7 @@ decide_spawn_type :: proc(spawner_index: int) {
 		}
 	}
 
-	if g_mem.game_state_machine == .Title {
+	if _, ok := g_mem.game_state_machine.(Game_State_Title); ok {
 		s.spawn_type = .Normal
 		return
 	}
@@ -612,7 +600,7 @@ decide_spawn_type :: proc(spawner_index: int) {
 }
 
 update_train_spawners :: proc() {
-	if g_mem.game_state_machine == .Title {
+	if _, ok := g_mem.game_state_machine.(Game_State_Title); ok {
 		for &s, i in g_mem.train_spawners {
 			s.timer -= DELTA_TIME
 			if s.timer < 0 {
@@ -665,17 +653,7 @@ update_train_spawners :: proc() {
 		}
 
 		if wave_endable {
-			if g_mem.current_wave % 3 == 0 {
-				g_mem.current_level += 1
-				if g_mem.current_level == len(levels) {
-					g_mem.current_level = 0
-				}
-				g_mem.fade_out = true
-				g_mem.fade_out_timer = 1
-			} else {
-				enter_wave_start()
-			}
-			g_mem.current_wave += 1
+			append(&game_messages, Game_Message.Wave_End)
 		}
 	}
 	
