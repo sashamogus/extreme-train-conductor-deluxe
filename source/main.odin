@@ -228,11 +228,6 @@ mouse_position :: proc() -> [2]f32 {
 	}
 }
 
-init :: proc() {
-	load_assets()
-	enter_title(true)
-	g_mem.game_state_machine = next_game_state.(Game_State_Machine)
-}
 
 load_assets :: proc() {
 	for t in Texture_Tag {
@@ -275,6 +270,12 @@ wave_start :: proc() {
 
 		decide_spawn_type(i)
 	}
+}
+
+init :: proc() {
+	load_assets()
+	enter_title(true)
+	g_mem.game_state_machine = next_game_state.(Game_State_Machine)
 }
 
 debug_rects: [dynamic]rl.Rectangle
@@ -336,7 +337,6 @@ get_rail :: proc(pos: [2]f32) -> Maybe(Rail) {
 
 	return g_mem.rail_grid[p.y][p.x]
 }
-
 
 get_rail_axis :: proc(rail: Rail) -> Maybe(Axis) {
 	switch rail.type {
@@ -873,6 +873,7 @@ update_trains :: proc() {
 			}
 		}
 		
+		// click on train to stop it
 		if !click_consumed && rl.IsMouseButtonPressed(.LEFT) {
 			rec_click := rl.Rectangle {
 				t.pos.x - TRAIN_CLICK_OFFSET,
@@ -943,11 +944,8 @@ update_trains :: proc() {
 		if out_of_screen(t.pos) {
 			if t.type != .Cargo {
 				back_handle := t.train_back
-				for back_handle != nil {
-					h := back_handle.(Train_Handle)
-					if !is_train_handle_valid(h) { break }
-
-					cargo := get_train(h)
+				for is_train_handle_valid_maybe(back_handle) {
+					cargo := get_train(back_handle.(Train_Handle))
 					cargo.scored = true
 					back_handle = cargo.train_back
 				}
