@@ -166,9 +166,7 @@ Train_Spawner :: struct {
 	spawn_time: f32,
 	spawn_type: Train_Spawn_Type,
 
-	quota_normal: int,
-	quota_fast: int,
-	quota_long: int,
+	quota_train: [Train_Spawn_Type]int,
 	quota_dir_change: int,
 
 	dir_change_queued: bool,
@@ -259,9 +257,9 @@ wave_start :: proc() {
 		s.timer = 4 + f32(i) * spawn_time / 2 + random_scaler(2)
 		s.spawn_time = spawn_time
 
-		s.quota_normal = 5
-		s.quota_fast = g_mem.current_wave / 3
-		s.quota_long = g_mem.current_wave / 5
+		s.quota_train[.Normal] = 5
+		s.quota_train[.Fast] = g_mem.current_wave / 3
+		s.quota_train[.Long] = g_mem.current_wave / 5
 		s.quota_dir_change = 2 + g_mem.current_wave / 7
 		
 		s.train_active = 0
@@ -560,9 +558,17 @@ spawn_train :: proc(spawner_index: int, type: Train_Type, length: int, speed_mul
 	}
 }
 
+sum :: proc(arr: [$I]int) -> int {
+	sum: int
+	for v in arr {
+		sum += v
+	}
+	return sum
+}
+
 decide_spawn_type :: proc(spawner_index: int) {
 	s := &g_mem.train_spawners[spawner_index]
-	quota_sum := s.quota_normal + s.quota_fast + s.quota_long
+	quota_sum := sum(s.quota_train)
 	if quota_sum == 0 {
 		return
 	}
@@ -580,22 +586,12 @@ decide_spawn_type :: proc(spawner_index: int) {
 	}
 	
 	r := rand.int_max(quota_sum)
-	r -= s.quota_normal
-	if r < 0 {
-		s.spawn_type = .Normal
-		return
-	}
-	
-	r -= s.quota_fast
-	if r < 0 {
-		s.spawn_type = .Fast
-		return
-	}
-	
-	r -= s.quota_long
-	if r < 0 {
-		s.spawn_type = .Long
-		return
+	for q, type in s.quota_train {
+		r -= q
+		if r < 0 {
+			s.spawn_type = type
+			return
+		}
 	}
 }
 
@@ -625,7 +621,7 @@ update_train_spawners :: proc() {
 				continue
 			}
 
-			quota_sum := s.quota_normal + s.quota_fast + s.quota_long
+			quota_sum := sum(s.quota_train)
 			if quota_sum > 0 || s.train_active > 0 {
 				wave_endable = false
 			}
@@ -636,14 +632,12 @@ update_train_spawners :: proc() {
 				switch s.spawn_type {
 				case .Normal:
 					spawn_train(i, .Head, 3 + (g_mem.current_wave / 15), 1)
-					s.quota_normal -= 1
 				case .Fast:
 					spawn_train(i, .Head, 3 + (g_mem.current_wave / 15), 2)
-					s.quota_fast -= 1
 				case .Long:
 					spawn_train(i, .Head, 7 + (g_mem.current_wave / 15), 0.8)
-					s.quota_long -= 1
 				}
+				s.quota_train[s.spawn_type] -= 1
 				decide_spawn_type(i)
 				s.timer = s.spawn_time + random_scaler(2)
 			}
@@ -662,7 +656,7 @@ update_train_spawners :: proc() {
 draw_train_spawners :: proc() {
 	for s, i in g_mem.train_spawners {
 		if s.dir_change_queued { continue }
-		if s.quota_normal == 0 && s.quota_fast == 0 && s.quota_long == 0 { continue }
+		if sum(s.quota_train) == 0 { continue }
 		if s.timer < 2 {
 			phase := math.mod(s.timer, 0.5)
 			if phase < 0.25 {
